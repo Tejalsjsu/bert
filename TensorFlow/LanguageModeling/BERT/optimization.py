@@ -82,6 +82,38 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, 
   tvars = tf.trainable_variables()
   grads_and_vars = optimizer.compute_gradients(loss, tvars)
   grads_and_vars = [(g,v) for g,v in grads_and_vars if g is not None]
+ 
+  # sparsification starts here
+
+  # calculating mean of gradients
+  # threshold  = tf.reduce_mean(grads_and_vars[0])
+
+  # using median instead of mean
+  high      = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='higher')
+  low       = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='lower')
+  threshold = (high+low)/2
+
+  # with tf.Session() as sess: sess.run(threshold)
+
+  for grad, var in grads_and_vars:
+    # if (optimizer.get_slot(var,'AdamWeightDecayOptimizer')):
+    #   grad = tf.math.add(grad, optimizer.get_slot(var,'backup_grads'))
+
+    prev_grad  = optimizer._get_or_make_slot(var, var.initialized_value(), 'prev_grad', 'AdamWeightDecayOptimizer')
+    grad = tf.math.add(grad, prev_grad)
+
+    bool_mask_less = tf.math.less(grad, threshold)
+    float_mask_less = tf.cast(bool_mask_less, grad.dtype)
+    backup_grads = tf.multiply(grad, float_mask)
+   
+    prev_grad  = optimizer._get_or_make_slot(var, var.initialized_value(), 'prev_grad', 'AdamWeightDecayOptimizer') 
+
+    # backup = optimizer._get_or_make_slot_with_initializer(var, var.initialized_value(), var.get_shape(), grad.dtype,  'backup_grads', 'AdamWeightDecayOptimizer') 
+    bool_mask  = tf.math.greater(grad, threshold)
+    float_mask = tf.cast(bool_mask, grad.dtype)
+    grad       = tf.multiply(grad, float_mask)
+  # sparsification ends here
+  
   grads, tvars = list(zip(*grads_and_vars))
   all_are_finite = tf.reduce_all([tf.reduce_all(tf.is_finite(g)) for g in grads]) if use_fp16 or amp else tf.constant(True, dtype=tf.bool)
 
@@ -195,3 +227,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     if m is not None:
       param_name = m.group(1)
     return param_name
+
+  # def get_slot(self, *args, **kwargs):
+  #      """Calls this same method on the underlying optimizer."""
+  #      return self._optimizer.get_slot(*args, **kwargs)

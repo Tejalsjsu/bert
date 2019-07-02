@@ -13,6 +13,8 @@ use_xla=${4:-"true"}
 num_gpu=${5:-"8"}
 init_checkpoint=${6:-"$BERT_DIR/bert_model.ckpt"}
 epochs="2.0"
+startTime=${SECONDS}
+
 
 use_fp16=""
 if [ "$precision" = "fp16" ] ; then
@@ -61,3 +63,7 @@ fi
     $use_xla_tag 
 
 python $SQUAD_DIR/evaluate-v1.1.py $SQUAD_DIR/dev-v1.1.json /results/predictions.json
+
+endTime=${SECONDS}
+diffTime=`expr ${endTime} - ${startTime}`
+echo "Diff Time: [${diffTime}]"
