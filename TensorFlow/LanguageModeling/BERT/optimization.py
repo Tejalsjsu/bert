@@ -75,9 +75,12 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, 
     if hvd is not None:
       from horovod.tensorflow.compression import Compression
       optimizer = hvd.DistributedOptimizer(optimizer, sparse_as_dense=True, compression=Compression.none)
-    if use_fp16 or amp:
-      loss_scale_manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(init_loss_scale=2**32, incr_every_n_steps=1000, decr_every_n_nan_or_inf=2, decr_ratio=0.5)
-      optimizer = tf.contrib.mixed_precision.LossScaleOptimizer(optimizer, loss_scale_manager)
+    #if use_fp16 or amp:
+      #loss_scale_manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(init_loss_scale=2**32, incr_every_n_steps=1000, decr_every_n_nan_or_inf=2, decr_ratio=0.5)
+      #optimizer = tf.contrib.mixed_precision.LossScaleOptimizer(optimizer, loss_scale_manager)
+
+  from CustomOptimizer import CustomOptimizer
+  optimizer = CustomOptimizer(optimizer)
 
   tvars = tf.trainable_variables()
   grads_and_vars = optimizer.compute_gradients(loss, tvars)
@@ -89,29 +92,29 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, 
   # threshold  = tf.reduce_mean(grads_and_vars[0])
 
   # using median instead of mean
-  high      = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='higher')
-  low       = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='lower')
-  threshold = (high+low)/2
+  #high      = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='higher')
+  #low       = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='lower')
+  #threshold = (high+low)/2
 
   # with tf.Session() as sess: sess.run(threshold)
 
-  for grad, var in grads_and_vars:
+#  for grad, var in grads_and_vars:
     # if (optimizer.get_slot(var,'AdamWeightDecayOptimizer')):
     #   grad = tf.math.add(grad, optimizer.get_slot(var,'backup_grads'))
 
-    prev_grad  = optimizer._get_or_make_slot(var, var.initialized_value(), 'prev_grad', 'AdamWeightDecayOptimizer')
-    grad = tf.math.add(grad, prev_grad)
+#    prev_grad  = optimizer.get_slot(var, 'prev_grad')
+#    grad = tf.math.add(grad, prev_grad)
 
-    bool_mask_less = tf.math.less(grad, threshold)
-    float_mask_less = tf.cast(bool_mask_less, grad.dtype)
-    backup_grads = tf.multiply(grad, float_mask)
+#    bool_mask_less = tf.math.less(grad, threshold)
+#    float_mask_less = tf.cast(bool_mask_less, grad.dtype)
+#    backup_grads = tf.multiply(grad, float_mask)
    
-    prev_grad  = optimizer._get_or_make_slot(var, var.initialized_value(), 'prev_grad', 'AdamWeightDecayOptimizer') 
+#    prev_grad  = optimizer.get_slot(var, 'prev_grad') 
 
     # backup = optimizer._get_or_make_slot_with_initializer(var, var.initialized_value(), var.get_shape(), grad.dtype,  'backup_grads', 'AdamWeightDecayOptimizer') 
-    bool_mask  = tf.math.greater(grad, threshold)
-    float_mask = tf.cast(bool_mask, grad.dtype)
-    grad       = tf.multiply(grad, float_mask)
+#    bool_mask  = tf.math.greater(grad, threshold)
+#    float_mask = tf.cast(bool_mask, grad.dtype)
+#    grad       = tf.multiply(grad, float_mask)
   # sparsification ends here
   
   grads, tvars = list(zip(*grads_and_vars))
