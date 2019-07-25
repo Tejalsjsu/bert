@@ -24,6 +24,7 @@ import tensorflow as tf
 
 def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, hvd=None, use_fp16=False, amp=False):
   """Creates an optimizer training op."""
+  print('create_op step')
   global_step = tf.train.get_or_create_global_step()
 
   # avoid step change in learning rate at end of warmup phase
@@ -57,7 +58,7 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, 
     is_warmup = tf.cast(global_steps_int < warmup_steps_int, tf.float32)
     learning_rate = (
         (1.0 - is_warmup) * learning_rate + is_warmup * warmup_learning_rate)
-
+  print('In create opt')
   # It is recommended that you use this optimizer for fine tuning, since this
   # is how the model was trained (note that the Adam m/v variables are NOT
   # loaded from init_checkpoint.)
@@ -75,13 +76,17 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, 
     if hvd is not None:
       from horovod.tensorflow.compression import Compression
       optimizer = hvd.DistributedOptimizer(optimizer, sparse_as_dense=True, compression=Compression.none)
-    if use_fp16 or amp:
-      loss_scale_manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(init_loss_scale=2**32, incr_every_n_steps=1000, decr_every_n_nan_or_inf=2, decr_ratio=0.5)
-      optimizer = tf.contrib.mixed_precision.LossScaleOptimizer(optimizer, loss_scale_manager)
+    #if use_fp16 or amp:
+    #  loss_scale_manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(init_loss_scale=2**32, incr_every_n_steps=1000, decr_every_n_nan_or_inf=2, decr_ratio=0.5)
+     # optimizer = tf.contrib.mixed_precision.LossScaleOptimizer(optimizer, loss_scale_manager)
+
+  from CustomOptimizer import CustomOptimizer
+  optimizer = CustomOptimizer(optimizer)
 
   tvars = tf.trainable_variables()
   grads_and_vars = optimizer.compute_gradients(loss, tvars)
   grads_and_vars = [(g,v) for g,v in grads_and_vars if g is not None]
+  
   grads, tvars = list(zip(*grads_and_vars))
   all_are_finite = tf.reduce_all([tf.reduce_all(tf.is_finite(g)) for g in grads]) if use_fp16 or amp else tf.constant(True, dtype=tf.bool)
 
@@ -121,6 +126,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     """Constructs a AdamWeightDecayOptimizer."""
     super(AdamWeightDecayOptimizer, self).__init__(False, name)
 
+    #print('init ')
     self.learning_rate = tf.identity(learning_rate, name='learning_rate')
     self.weight_decay_rate = weight_decay_rate
     self.beta_1 = beta_1
@@ -195,3 +201,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     if m is not None:
       param_name = m.group(1)
     return param_name
+
+  # def get_slot(self, *args, **kwargs):
+  #      """Calls this same method on the underlying optimizer."""
+  #      return self._optimizer.get_slot(*args, **kwargs)

@@ -1318,6 +1318,8 @@ def main(_):
     estimator.train(input_fn=train_input_fn, hooks=training_hooks, max_steps=num_train_steps)
     train_time_elapsed = time.time() - train_start_time
     train_time_wo_startup = training_hooks[-1].total_time
+    if train_time_wo_startup == 0:
+      train_time_wo_startup = 0.01
     avg_sentences_per_second = num_train_steps * global_batch_size * 1.0 / train_time_wo_startup
 
     if master_process:
