@@ -24,6 +24,7 @@ import tensorflow as tf
 
 def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, hvd=None, use_fp16=False, amp=False):
   """Creates an optimizer training op."""
+  print('create_op step')
   global_step = tf.train.get_or_create_global_step()
 
   # avoid step change in learning rate at end of warmup phase
@@ -57,7 +58,7 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, 
     is_warmup = tf.cast(global_steps_int < warmup_steps_int, tf.float32)
     learning_rate = (
         (1.0 - is_warmup) * learning_rate + is_warmup * warmup_learning_rate)
-
+  print('In create opt')
   # It is recommended that you use this optimizer for fine tuning, since this
   # is how the model was trained (note that the Adam m/v variables are NOT
   # loaded from init_checkpoint.)
@@ -76,8 +77,8 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, 
       from horovod.tensorflow.compression import Compression
       optimizer = hvd.DistributedOptimizer(optimizer, sparse_as_dense=True, compression=Compression.none)
     #if use_fp16 or amp:
-      #loss_scale_manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(init_loss_scale=2**32, incr_every_n_steps=1000, decr_every_n_nan_or_inf=2, decr_ratio=0.5)
-      #optimizer = tf.contrib.mixed_precision.LossScaleOptimizer(optimizer, loss_scale_manager)
+    #  loss_scale_manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(init_loss_scale=2**32, incr_every_n_steps=1000, decr_every_n_nan_or_inf=2, decr_ratio=0.5)
+     # optimizer = tf.contrib.mixed_precision.LossScaleOptimizer(optimizer, loss_scale_manager)
 
   from CustomOptimizer import CustomOptimizer
   optimizer = CustomOptimizer(optimizer)
@@ -85,37 +86,6 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu, 
   tvars = tf.trainable_variables()
   grads_and_vars = optimizer.compute_gradients(loss, tvars)
   grads_and_vars = [(g,v) for g,v in grads_and_vars if g is not None]
- 
-  # sparsification starts here
-
-  # calculating mean of gradients
-  # threshold  = tf.reduce_mean(grads_and_vars[0])
-
-  # using median instead of mean
-  #high      = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='higher')
-  #low       = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='lower')
-  #threshold = (high+low)/2
-
-  # with tf.Session() as sess: sess.run(threshold)
-
-#  for grad, var in grads_and_vars:
-    # if (optimizer.get_slot(var,'AdamWeightDecayOptimizer')):
-    #   grad = tf.math.add(grad, optimizer.get_slot(var,'backup_grads'))
-
-#    prev_grad  = optimizer.get_slot(var, 'prev_grad')
-#    grad = tf.math.add(grad, prev_grad)
-
-#    bool_mask_less = tf.math.less(grad, threshold)
-#    float_mask_less = tf.cast(bool_mask_less, grad.dtype)
-#    backup_grads = tf.multiply(grad, float_mask)
-   
-#    prev_grad  = optimizer.get_slot(var, 'prev_grad') 
-
-    # backup = optimizer._get_or_make_slot_with_initializer(var, var.initialized_value(), var.get_shape(), grad.dtype,  'backup_grads', 'AdamWeightDecayOptimizer') 
-#    bool_mask  = tf.math.greater(grad, threshold)
-#    float_mask = tf.cast(bool_mask, grad.dtype)
-#    grad       = tf.multiply(grad, float_mask)
-  # sparsification ends here
   
   grads, tvars = list(zip(*grads_and_vars))
   all_are_finite = tf.reduce_all([tf.reduce_all(tf.is_finite(g)) for g in grads]) if use_fp16 or amp else tf.constant(True, dtype=tf.bool)
@@ -156,6 +126,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     """Constructs a AdamWeightDecayOptimizer."""
     super(AdamWeightDecayOptimizer, self).__init__(False, name)
 
+    #print('init ')
     self.learning_rate = tf.identity(learning_rate, name='learning_rate')
     self.weight_decay_rate = weight_decay_rate
     self.beta_1 = beta_1

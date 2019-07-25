@@ -79,55 +79,86 @@ def _allreduce(tensor, name=None):
     tensor = DGC_MPI_LIB._allreduce(tensor, name=name)
     return _decompress(tesnor, shape)
 
+def _indexedslice(grad, shape):
+    flat_grad = tf.reshape(grad, [-1])
+    values, indices = [],[]
+    row, col = 0, 0
+    sess = tf.Session()
+    
+    for tensor in sess.run(flat_grad):
+        if tensor != 0:
+            values.append(tensor)
+            indices.append((row , col))
+        if col >= shape[1]:
+            col = 0
+            row += 1
+        else:
+            col += 1
+        
+    
+    #print(values)
+    #print(indices)
+    
+    indexed_sclices = tf.IndexedSlices(values,indices, dense_shape=x.shape)
+    return indexed_sclices
+
+
+
 class CustomOptimizer(tf.train.Optimizer):
    def __init__(self, optimizer, name=None):
        if name is None:
            name = "Custom{}".format(type(optimizer).__name__)
-
+       self._name = name
        self._optimizer = optimizer
    
    def compute_gradients(self, *args, **kwargs):
        grads_and_vars = self._optimizer.compute_gradients(*args, **kwargs)	
-       # grads_and_vars = [(g,v) for g,v in grads_and_vars if g is not None]
-	
-       # sparsification starts here
-       # calculating mean of gradients
-       # threshold  = tf.reduce_mean(grads_and_vars[0])
-
-       # using median instead of mean
-       threshold = tf.contrib.distributions.percentile(grads_and_vars[0],10.,interpolation='higher')
-       #low = tf.contrib.distributions.percentile(grads_and_vars[0],50.,interpolation='lower')
-       #threshold = (high+low)/2
-
-       # with tf.Session() as sess: sess.run(threshold)
-
+       grads_and_vars = [(g,v) for g,v in grads_and_vars if g is not None]
+       newgrads = []
+       threshold = tf.contrib.distributions.percentile(abs(grads_and_vars[0][0]),80.0,interpolation='higher')
        for grad, var in grads_and_vars:
-           # get prev grad if it is in slot ans add it to current grad
-           prev_grad  = self._optimizer.get_slot(var, 'prev_grad')
-           # grad = tf.math.add(grad, prev_grad)
-           if prev_grad is  None:
-               continue
-           else:
-               grad += prev_grad
-
-            
+           #threshold = tf.contrib.distributions.percentile(grad,50.0,interpolation='higher')
+           prev_grad = self._optimizer._get_or_make_slot(var, tf.zeros(tf.shape(grad), grad.dtype, 'prev_grad'), 'prev_grad', self._name)
+           grad = tf.math.add(grad, prev_grad)
+           #if prev_grad is  None:
+           #    continue
+           #else:
+           #    grad += prev_grad
+          
            # backed up grad that are less than threshold to use in next iteration
-           bool_mask_less = tf.math.less(grad, threshold)
+           bool_mask_less = tf.math.less(abs(grad), threshold)
            float_mask_less = tf.cast(bool_mask_less, grad.dtype)
-           backup_grads = tf.multiply(grad, float_mask)
-           prev_grad  = self._optimizer.get_slot(var, 'prev_grad')
-
-           # prev_grad  = optimizer._get_or_make_slot(var, var.initialized_value(), 'prev_grad', 'AdamWeightDecayOptimizer')
-           # backup = optimizer._get_or_make_slot_with_initializer(var, var.initialized_value(), var.get_shape(), grad.dtype,  'backup_grads', 'AdamWeightDecayOptimizer')
-           bool_mask = tf.math.greater(grad, threshold)
+           backup_grads = tf.multiply(grad, float_mask_less)
+           #prev_grad  = self._optimizer.get_slot(var, 'prev_grad')
+           prev_grad = self._optimizer._get_or_make_slot(var, backup_grads, 'prev_grad', self._name)
+           bool_mask = tf.math.greater(abs(grad), threshold)
            float_mask = tf.cast(bool_mask, grad.dtype)
-           grad = tf.multiply(grad, float_mask)
+           #grad = tf.multiply(grad, float_mask)
+           ''' 
+           flat_grad = tf.reshape(grad, [-1])
+           print('after flat')
+           values, indices = [],[]
+         
+           row, col = 0, 0
+           #tf.enable_eager_execution() 
+           for tensor in sess.run(flat_grad):
+               if tensor != 0:
+                   values.append(tensor)
+                   indices.append((row , col))
+               if col >= shape[1]:
+                   col = 0
+                   row += 1
+               else:
+                   col += 1
+        
+          '''
 
-           dgc_mpi = DGC_MPI_LIB()
-           grads_and_vars[0] = dgc_mpi._allreduce(grads_and_vars[0])
-       # sparsification ends here
-       return grads_and_vars
+           #indexed_sclices = tf.IndexedSlices(grad,grad,dense_shape=grad.shape)
+           #newgrads.append(indexed_sclices)
+           newgrads.append(tf.multiply(grad, float_mask))
+           #Call indexSparsification over here
 
+       return [(grad, gradvar[1]) for grad, gradvar in zip(newgrads, grads_and_vars)]
 
    def apply_gradients(self, *args, **kwargs):
        return self._optimizer.apply_gradients(*args, **kwargs)
@@ -174,3 +205,5 @@ class CustomOptimizer(tf.train.Optimizer):
        new_tensor = (summed_tensor / horovod_size) if average else summed_tensor
 
        return new_tensor
+  
+
